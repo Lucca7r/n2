@@ -18,8 +18,8 @@ GENERATIONS = 30        # 20–40 sugerido
 ELITISM = 8             # ~10% de elitismo
 TOURNAMENT_K = 3
 CROSSOVER_RATE = 0.9
-MUTATION_RATE_INT = 0.15
-MUTATION_RATE_CAT = 0.1
+MUTATION_RATE_INT = 0.5
+MUTATION_RATE_CAT = 0.5
 MUTATION_CREEP_STEPS = [-5, -2, -1, 1, 2, 5]
 
 LOCAL_REFINES_PER_GEN = 5      # refinamentos locais por geração
@@ -35,8 +35,8 @@ PSO_SOCIAL = 1.4
 PSO_CAT_INJECT = 0.1  # probabilidade de tentar alterar categoria discretamente
 
 # Caminho/uso do simulador
-MODELO_EXECUTAVEL = "modelo10.exe"  # nome do executável fornecido
-USE_SUBPROCESS = False  # True para chamar o .exe; False usa função Python simulada
+MODELO_EXECUTAVEL = "C:/Users/aluno/Downloads/n2-main/modelo10.exe"  # nome do executável fornecido
+USE_SUBPROCESS = True  # True para chamar o .exe; False usa função Python simulada
 
 # ==========================
 # Utilidades
@@ -94,20 +94,30 @@ def evaluate_model(ind: Dict[str, Any]) -> float:
     e a primeira linha da stdout deve conter o valor-objetivo (float).
     """
     if USE_SUBPROCESS:
-        args = [MODELO_EXECUTAVEL, ind["cat"]] + list(map(str, ind["ints"]))
-        try:
-            result = subprocess.run(args, capture_output=True, text=True, check=True)
-            value_str = result.stdout.strip().splitlines()[0]
-            return float(value_str)
-        except Exception:
-            # Em caso de erro/executable return, penalizar fortemente para evitar considerar como bom
+            args = [MODELO_EXECUTAVEL, ind["cat"]] + list(map(str, ind["ints"]))
+            print(">> Rodando:", args)  # DEBUG
+
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True
+        )
+
+        print("STDOUT:", repr(result.stdout))
+        print("STDERR:", repr(result.stderr))
+        print("Return code:", result.returncode)
+
+        if result.returncode != 0:
+            print("ERRO: Executável retornou código != 0")
             return -1e12
-    else:
-        # Objetivo fictício para demonstração: uma função suave + interação categórica.
-        base = sum(ind["ints"])
-        cat_bonus = {"baixo": 30.0, "medio": 50.0, "alto": 45.0}[ind["cat"]]
-        nonlinear = sum(math.sin(x/7.0) for x in ind["ints"])
-        return base + cat_bonus + 3.0 * nonlinear
+
+        value_str = result.stdout.strip().splitlines()[0]
+        return float(value_str)
+
+    except Exception as e:
+        print("EXCEPTION:", e)
+        return -1e12
 
 # ==========================
 # Pattern Search local em grade
@@ -567,7 +577,7 @@ def genetic_pure(seed: int = 42, logfile: str = "avaliacoes_ga_puro.csv") -> Dic
 # 2) GA puro
 # 3) PSO puro
 # ==========================
-if _name_ == "_main_":
+if __name__ == "__main__":
     random.seed(123)
 
     print("1) Rodando modo HÍBRIDO: GA + PatternSearch + PSO")

@@ -28,7 +28,7 @@ NO_IMPROVE_STOP = 8            # gerações sem melhora
 # Se você tem um executável modelo10.exe que aceita parâmetros via linha de comando,
 # ajuste a função evaluate_model para chamá-lo.
 MODELO_EXECUTAVEL = "modelo10.exe"  # nome do executável fornecido
-USE_SUBPROCESS = False  # True para chamar o .exe; False usa função Python simulada
+USE_SUBPROCESS = True  # True para chamar o .exe; False usa função Python simulada
 
 # ==========================
 # Utilidades
