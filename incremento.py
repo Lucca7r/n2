@@ -1,4 +1,4 @@
-# run_all_modes.py
+# run_all_modes_final.py
 import random
 import time
 import csv
@@ -13,30 +13,40 @@ CATEGORIES = ["baixo", "medio", "alto"]  # tratar como nominal
 INT_MIN, INT_MAX = 1, 100
 N_INT_VARS = 9
 
-POP_SIZE = 80           # 60–100 sugerido
-GENERATIONS = 30        # 20–40 sugerido
-ELITISM = 8             # ~10% de elitismo
+POP_SIZE = 80
+GENERATIONS = 30
+ELITISM = 8
 TOURNAMENT_K = 3
 CROSSOVER_RATE = 0.9
 MUTATION_RATE_INT = 0.5
 MUTATION_RATE_CAT = 0.5
 MUTATION_CREEP_STEPS = [-5, -2, -1, 1, 2, 5]
 
-LOCAL_REFINES_PER_GEN = 5      # refinamentos locais por geração
-LOCAL_REFINE_BUDGET = 30       # avaliações máximas por refino local
-NO_IMPROVE_STOP = 8            # gerações sem melhora
+LOCAL_REFINES_PER_GEN = 5
+LOCAL_REFINE_BUDGET = 30
+NO_IMPROVE_STOP = 8
 
-# PSO defaults (ajuste conforme desejar)
+# PSO defaults
 PSO_PARTICLES = 25
 PSO_ITERATIONS = 30
 PSO_INERTIA = 0.7
 PSO_COGNITIVE = 1.4
 PSO_SOCIAL = 1.4
-PSO_CAT_INJECT = 0.1  # probabilidade de tentar alterar categoria discretamente
+PSO_CAT_INJECT = 0.1
 
 # Caminho/uso do simulador
-MODELO_EXECUTAVEL = "C:/Users/aluno/Downloads/n2-main/modelo10.exe"  # nome do executável fornecido
+MODELO_EXECUTAVEL = "C:/Users/aluno/Downloads/n2-main/modelo10.exe"
 USE_SUBPROCESS = True  # True para chamar o .exe; False usa função Python simulada
+
+# ==========================
+# TIMEOUT configurável
+# ==========================
+TIMEOUT_SEC = 300  # default 300s = 5 minutos; altere aqui conforme quiser
+
+# ==========================
+# Cache de avaliações (evita rodar o mesmo indivíduo várias vezes)
+# ==========================
+EVAL_CACHE: Dict[Tuple[str, Tuple[int, ...]], float] = {}
 
 # ==========================
 # Utilidades
@@ -44,19 +54,23 @@ USE_SUBPROCESS = True  # True para chamar o .exe; False usa função Python simu
 def clamp(x: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, x))
 
+
 def random_individual() -> Dict[str, Any]:
     return {
         "cat": random.choice(CATEGORIES),
         "ints": [random.randint(INT_MIN, INT_MAX) for _ in range(N_INT_VARS)],
     }
 
+
 def mutate(ind: Dict[str, Any]) -> Dict[str, Any]:
     new_ind = {"cat": ind["cat"], "ints": ind["ints"][:]}
+
     # mutação categórica
     if random.random() < MUTATION_RATE_CAT:
         choices = [c for c in CATEGORIES if c != new_ind["cat"]]
         new_ind["cat"] = random.choice(choices)
-    # mutação inteira com creep/reset
+
+    # mutação inteira
     for i in range(N_INT_VARS):
         if random.random() < MUTATION_RATE_INT:
             if random.random() < 0.6:
@@ -64,60 +78,84 @@ def mutate(ind: Dict[str, Any]) -> Dict[str, Any]:
                 new_ind["ints"][i] = clamp(new_ind["ints"][i] + step, INT_MIN, INT_MAX)
             else:
                 new_ind["ints"][i] = random.randint(INT_MIN, INT_MAX)
+
     return new_ind
+
 
 def crossover(p1: Dict[str, Any], p2: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if random.random() > CROSSOVER_RATE:
         return {"cat": p1["cat"], "ints": p1["ints"][:]},{"cat": p2["cat"], "ints": p2["ints"][:]}
-    # categoria: troca com 50%
+
     c1 = p1["cat"] if random.random() < 0.5 else p2["cat"]
     c2 = p2["cat"] if random.random() < 0.5 else p1["cat"]
-    # inteiros: 1 ponto
+
     point = random.randint(1, N_INT_VARS - 1)
     ints1 = p1["ints"][:point] + p2["ints"][point:]
     ints2 = p2["ints"][:point] + p1["ints"][point:]
+
     return {"cat": c1, "ints": ints1}, {"cat": c2, "ints": ints2}
+
 
 def tournament_select(pop_with_fit: List[Tuple[Dict[str, Any], float]]) -> Dict[str, Any]:
     contenders = random.sample(pop_with_fit, TOURNAMENT_K)
-    # Maximização: maior fitness
     champion = max(contenders, key=lambda x: x[1])
     return {"cat": champion[0]["cat"], "ints": champion[0]["ints"][:]}
 
 # ==========================
-# Avaliação do modelo
+# Avaliação do modelo (com timeout e cache)
 # ==========================
 def evaluate_model(ind: Dict[str, Any]) -> float:
     """
-    Integre aqui sua chamada ao programa modelo10.exe.
-    Se USE_SUBPROCESS=True, o executável deve aceitar: modelo10.exe <cat> <x1> <x2> ...
-    e a primeira linha da stdout deve conter o valor-objetivo (float).
+    Executa MODELO_EXECUTAVEL com timeout (TIMEOUT_SEC).
+    Usa EVAL_CACHE para não reavaliar o mesmo indivíduo.
+    Retorna float (fitness). Em caso de timeout/erro retorna penalidade -1e12.
     """
+
+    key = (ind["cat"], tuple(ind["ints"]))
+    if key in EVAL_CACHE:
+        return EVAL_CACHE[key]
+
+    # Modo subprocess (real)
     if USE_SUBPROCESS:
-            args = [MODELO_EXECUTAVEL, ind["cat"]] + list(map(str, ind["ints"]))
-            print(">> Rodando:", args)  # DEBUG
+        args = [MODELO_EXECUTAVEL, ind["cat"]] + list(map(str, ind["ints"]))
+        try:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_SEC
+            )
 
-    try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True
-        )
+            if result.returncode != 0:
+                # Execução falhou
+                val = -1e12
+            else:
+                out = result.stdout.strip().splitlines()
+                if not out:
+                    val = -1e12
+                else:
+                    try:
+                        val = float(out[0])
+                    except Exception:
+                        val = -1e12
 
-        print("STDOUT:", repr(result.stdout))
-        print("STDERR:", repr(result.stderr))
-        print("Return code:", result.returncode)
+        except subprocess.TimeoutExpired:
+            # excedeu o timeout — penalizar e seguir
+            print(f"[TIMEOUT] Exec excedeu {TIMEOUT_SEC}s — indivíduo penalizado.")
+            val = -1e12
+        except Exception as e:
+            print("[EXCEPTION] Erro ao chamar executável:", e)
+            val = -1e12
 
-        if result.returncode != 0:
-            print("ERRO: Executável retornou código != 0")
-            return -1e12
+    else:
+        # Modo simulado (para debug sem .exe)
+        base = sum(ind["ints"])
+        cat_bonus = {"baixo": 30.0, "medio": 50.0, "alto": 45.0}[ind["cat"]]
+        nonlinear = sum(math.sin(x/7.0) for x in ind["ints"])
+        val = base + cat_bonus + 3.0 * nonlinear
 
-        value_str = result.stdout.strip().splitlines()[0]
-        return float(value_str)
-
-    except Exception as e:
-        print("EXCEPTION:", e)
-        return -1e12
+    EVAL_CACHE[key] = val
+    return val
 
 # ==========================
 # Pattern Search local em grade
@@ -161,7 +199,7 @@ def local_pattern_search(start_ind: Dict[str, Any],
     return current, fcur, evals
 
 # ==========================
-# PSO (swarm) - função reutilizável
+# PSO (swarm) - função reutilizável (escreve own logfile)
 # ==========================
 def pso_optimize(seed: int = 42,
                  n_particles: int = PSO_PARTICLES,
@@ -422,7 +460,7 @@ def genetic_hybrid(seed: int = 42, logfile: str = "avaliacoes_hybrid.csv") -> Di
             gen_best_ind, gen_best_val = max(pop_fit, key=lambda x: x[1])
             if gen_best_val > best_value:
                 best_value = gen_best_val
-                best_overall = {"cat": gen_best_ind["cat"], "ints": gen_best_ind["ints"][:]}
+                best_overall = {"cat": gen_best_ind["cat"], "ints": gen_best_ind["ints"][:] }
                 gens_no_improve = 0
             else:
                 gens_no_improve += 1
@@ -431,7 +469,7 @@ def genetic_hybrid(seed: int = 42, logfile: str = "avaliacoes_hybrid.csv") -> Di
             pop_fit_sorted = sorted(pop_fit, key=lambda x: x[1], reverse=True)
             k_local = min(LOCAL_REFINES_PER_GEN, len(pop_fit_sorted))
             for i in range(k_local):
-                start_ind = {"cat": pop_fit_sorted[i][0]["cat"], "ints": pop_fit_sorted[i][0]["ints"][:]}
+                start_ind = {"cat": pop_fit_sorted[i][0]["cat"], "ints": pop_fit_sorted[i][0]["ints"][:] }
                 start_val = pop_fit_sorted[i][1]
 
                 # 1) Pattern Search
@@ -448,7 +486,6 @@ def genetic_hybrid(seed: int = 42, logfile: str = "avaliacoes_hybrid.csv") -> Di
                 eval_id += 1
 
                 # 2) PSO refinamento a partir do resultado do Pattern Search
-                # passamos o writer para que as avaliações do PSO sejam logadas no mesmo arquivo
                 sw_best, sw_val, sw_evals = swarm_refine(loc_best, loc_val,
                                                         n_particles=PSO_PARTICLES,
                                                         iterations=PSO_ITERATIONS,
@@ -546,7 +583,7 @@ def genetic_pure(seed: int = 42, logfile: str = "avaliacoes_ga_puro.csv") -> Dic
             gen_best_ind, gen_best_val = max(pop_fit, key=lambda x: x[1])
             if gen_best_val > best_value:
                 best_value = gen_best_val
-                best_overall = {"cat": gen_best_ind["cat"], "ints": gen_best_ind["ints"][:]}
+                best_overall = {"cat": gen_best_ind["cat"], "ints": gen_best_ind["ints"][:] }
                 gens_no_improve = 0
             else:
                 gens_no_improve += 1
