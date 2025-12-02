@@ -91,9 +91,9 @@ START_TIME = None
 TIMEOUT_GLOBAL = None
 TIMEOUT_REACHED = False
 EVAL_ID_COUNTER = 0
-
-# Caminho do executável
-# Ajuste para o caminho correto do seu modelo
+# Caminho do executável 
+# caminhos C:/Users/adm/Documents/faculdade/2025_2/pesquisa_op/n2 ==== 
+# C:/Users/aluno/Downloads/n2-main/n2-main/simulado.exe
 MODELO_EXECUTAVEL = "C:/Users/adm/Documents/faculdade/2025_2/pesquisa_op/n2/model/simulado.exe"
 USE_SUBPROCESS = True  # False para modo de simulação interna
 
